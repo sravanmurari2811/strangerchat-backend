@@ -5,7 +5,7 @@ module.exports = (io) => {
     io.on('connection', (socket) => {
         socket.on('join-matchmaking', (userData) => {
             const { nickname, gender, chatMode } = userData;
-            socket.userData = { id: socket.id, nickname: nickname || 'Stranger', gender, chatMode: chatMode === 'text' ? 'text' : 'video' };
+            socket.userData = { id: socket.id, nickname: nickname || 'Stranger', gender, chatMode };
             findMatch(socket);
         });
 
@@ -31,6 +31,20 @@ module.exports = (io) => {
             }
         };
 
+        // Signaling for Text Mode "Upgrades"
+        socket.on('request-call', ({ to, type }) => {
+            io.to(to).emit('incoming-call', { from: socket.id, type });
+        });
+
+        socket.on('accept-call', ({ to, type }) => {
+            io.to(to).emit('call-accepted', { from: socket.id, type });
+        });
+
+        socket.on('decline-call', ({ to }) => {
+            io.to(to).emit('call-declined', { from: socket.id });
+        });
+
+        // WebRTC Signaling
         socket.on('offer', ({ to, offer }) => io.to(to).emit('offer', { from: socket.id, offer }));
         socket.on('answer', ({ to, answer }) => io.to(to).emit('answer', { from: socket.id, answer }));
         socket.on('ice-candidate', ({ to, candidate }) => io.to(to).emit('ice-candidate', { from: socket.id, candidate }));
