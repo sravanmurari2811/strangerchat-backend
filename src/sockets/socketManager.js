@@ -43,6 +43,10 @@ module.exports = (io) => {
             io.to(to).emit('call-declined', { from: socket.id });
         });
 
+        socket.on('end-call', ({ to }) => {
+            io.to(to).emit('call-ended');
+        });
+
         socket.on('offer', ({ to, offer }) => io.to(to).emit('offer', { from: socket.id, offer }));
         socket.on('answer', ({ to, answer }) => io.to(to).emit('answer', { from: socket.id, answer }));
         socket.on('ice-candidate', ({ to, candidate }) => io.to(to).emit('ice-candidate', { from: socket.id, candidate }));
@@ -54,6 +58,10 @@ module.exports = (io) => {
         socket.on('next-user', () => {
             handleDisconnect(socket);
             findMatch(socket);
+        });
+
+        socket.on('leave-chat', () => {
+            handleDisconnect(socket);
         });
 
         const handleDisconnect = (socket) => {
