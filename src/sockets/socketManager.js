@@ -102,9 +102,20 @@ module.exports = (io) => {
         });
 
         socket.on('call-user', ({ to, type }) => {
-            // Verify pair relationship before relaying call request
             if (activePairs.get(socket.id) === to) {
-                io.to(to).emit('call-request', { from: socket.id, type });
+                io.to(to).emit('call-request', { from: socket.id, type, nickname: socket.userData.nickname });
+            }
+        });
+
+        socket.on('accept-call', ({ to }) => {
+            if (activePairs.get(socket.id) === to) {
+                io.to(to).emit('call-accepted', { from: socket.id });
+            }
+        });
+
+        socket.on('reject-call', ({ to }) => {
+            if (activePairs.get(socket.id) === to) {
+                io.to(to).emit('call-rejected', { from: socket.id });
             }
         });
 
