@@ -127,6 +127,7 @@ module.exports = (io) => {
         socket.on('request-call', ({ to, type }) => io.to(to).emit('incoming-call', { from: socket.id, type }));
         socket.on('accept-call', ({ to, type }) => io.to(to).emit('call-accepted', { from: socket.id, type }));
         socket.on('decline-call', ({ to }) => io.to(to).emit('call-declined', { from: socket.id }));
+        socket.on('cancel-call', ({ to }) => io.to(to).emit('call-cancelled', { from: socket.id }));
         socket.on('end-call', ({ to }) => io.to(to).emit('call-ended'));
         socket.on('offer', ({ to, offer }) => io.to(to).emit('offer', { from: socket.id, offer }));
         socket.on('answer', ({ to, answer }) => io.to(to).emit('answer', { from: socket.id, answer }));
