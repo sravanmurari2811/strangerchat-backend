@@ -119,6 +119,13 @@ module.exports = (io) => {
             }
         });
 
+        // WebRTC Signaling Relay
+        socket.on('webrtc-signal', ({ to, signal }) => {
+            if (activePairs.get(socket.id) === to) {
+                io.to(to).emit('webrtc-signal', { from: socket.id, signal });
+            }
+        });
+
         socket.on('next-user', () => {
             console.log(`[Socket] Next user requested by ${socket.id}`);
             handleCleanup(socket.id);
