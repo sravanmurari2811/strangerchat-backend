@@ -1,5 +1,5 @@
 // Global matchmaking queues
-const queues = { text: [], video: [] };
+const queues = { text: [] };
 const activePairs = new Map();
 
 module.exports = (io) => {
@@ -12,32 +12,28 @@ module.exports = (io) => {
             // Clean any existing state
             handleCleanup(socket.id);
 
-            const { nickname, gender, chatMode } = userData;
-            const mode = (chatMode === 'video' || chatMode === 'text') ? chatMode : 'text';
+            const { nickname, gender } = userData;
 
             socket.userData = {
                 id: socket.id,
                 nickname: nickname || 'Stranger',
                 gender: gender || 'other',
-                chatMode: mode
+                chatMode: 'text'
             };
 
-            console.log(`[Queue] User ${socket.id} joined ${mode} queue`);
+            console.log(`[Queue] User ${socket.id} joined text queue`);
             findMatch(socket);
         });
 
         const findMatch = (socket) => {
             if (!socket || !socket.userData) return;
-            const mode = socket.userData.chatMode;
-            const targetQueue = queues[mode];
+            const targetQueue = queues.text;
 
-            // 1. Remove self from all queues using splice (to maintain array references)
-            ['text', 'video'].forEach(m => {
-                let idx;
-                while ((idx = queues[m].indexOf(socket.id)) !== -1) {
-                    queues[m].splice(idx, 1);
-                }
-            });
+            // 1. Remove self from queue
+            let idx;
+            while ((idx = targetQueue.indexOf(socket.id)) !== -1) {
+                targetQueue.splice(idx, 1);
+            }
 
             // 2. Search for a valid peer
             let peerSocket = null;
@@ -57,27 +53,27 @@ module.exports = (io) => {
                 activePairs.set(socket.id, peerSocket.id);
                 activePairs.set(peerSocket.id, socket.id);
 
-                console.log(`[Matchmaking] MATCHED: ${socket.id} <-> ${peerSocket.id} [${mode}]`);
+                console.log(`[Matchmaking] MATCHED: ${socket.id} <-> ${peerSocket.id}`);
 
                 // Emit to both users
                 socket.emit('matched', {
                     peerId: peerSocket.id,
                     peerNickname: peerSocket.userData?.nickname || 'Stranger',
-                    mode,
+                    mode: 'text',
                     initiator: true
                 });
 
                 peerSocket.emit('matched', {
                     peerId: socket.id,
                     peerNickname: socket.userData.nickname,
-                    mode,
+                    mode: 'text',
                     initiator: false
                 });
             } else {
                 // No peer found, add this user to the queue
                 targetQueue.push(socket.id);
                 socket.emit('waiting');
-                console.log(`[Matchmaking] ${socket.id} is waiting in ${mode}. Queue size: ${targetQueue.length}`);
+                console.log(`[Matchmaking] ${socket.id} is waiting in text. Queue size: ${targetQueue.length}`);
             }
         };
 
@@ -91,19 +87,24 @@ module.exports = (io) => {
                 console.log(`[Cleanup] Unpaired ${socketId} and ${peerId}`);
             }
 
-            // Remove from all queues using splice
-            ['text', 'video'].forEach(m => {
-                let idx;
-                while ((idx = queues[m].indexOf(socketId)) !== -1) {
-                    queues[m].splice(idx, 1);
-                }
-            });
+            // Remove from queue
+            let idx;
+            while ((idx = queues.text.indexOf(socketId)) !== -1) {
+                queues.text.splice(idx, 1);
+            }
         };
 
         socket.on('send-message', ({ to, message }) => {
             // Verify pair relationship before relaying
             if (activePairs.get(socket.id) === to) {
                 io.to(to).emit('receive-message', { message });
+            }
+        });
+
+        socket.on('call-user', ({ to, type }) => {
+            // Verify pair relationship before relaying call request
+            if (activePairs.get(socket.id) === to) {
+                io.to(to).emit('call-request', { from: socket.id, type });
             }
         });
 
@@ -122,15 +123,5 @@ module.exports = (io) => {
             console.log(`[Socket] Disconnected: ${socket.id} (${reason})`);
             handleCleanup(socket.id);
         });
-
-        // WebRTC Signaling Relays
-        socket.on('request-call', ({ to, type }) => io.to(to).emit('incoming-call', { from: socket.id, type }));
-        socket.on('accept-call', ({ to, type }) => io.to(to).emit('call-accepted', { from: socket.id, type }));
-        socket.on('decline-call', ({ to }) => io.to(to).emit('call-declined', { from: socket.id }));
-        socket.on('cancel-call', ({ to }) => io.to(to).emit('call-cancelled', { from: socket.id }));
-        socket.on('end-call', ({ to }) => io.to(to).emit('call-ended'));
-        socket.on('offer', ({ to, offer }) => io.to(to).emit('offer', { from: socket.id, offer }));
-        socket.on('answer', ({ to, answer }) => io.to(to).emit('answer', { from: socket.id, answer }));
-        socket.on('ice-candidate', ({ to, candidate }) => io.to(to).emit('ice-candidate', { from: socket.id, candidate }));
     });
 };
