@@ -1,10 +1,15 @@
+const { getAvailableBot, releaseBot, handleBotMessage, handleBotCall } = require('./botManager');
+
 // Global matchmaking queues
 const queues = { text: [] };
 const activePairs = new Map();
+let onlineCount = 0;
 
 module.exports = (io) => {
     io.on('connection', (socket) => {
-        console.log(`[Socket] Connected: ${socket.id}`);
+        onlineCount++;
+        console.log(`[Socket] Connected: ${socket.id}. Online: ${onlineCount}`);
+        io.emit('online-count', onlineCount);
 
         socket.on('join-matchmaking', (userData) => {
             if (!userData) return;
@@ -70,10 +75,41 @@ module.exports = (io) => {
                     initiator: false
                 });
             } else {
-                // No peer found, add this user to the queue
-                targetQueue.push(socket.id);
-                socket.emit('waiting');
-                console.log(`[Matchmaking] ${socket.id} is waiting in text. Queue size: ${targetQueue.length}`);
+                // No human peer found, try to find a bot
+                const bot = getAvailableBot();
+                if (bot) {
+                    bot.activePartnerId = socket.id;
+                    activePairs.set(socket.id, bot.id);
+                    // No need to set activePairs.set(bot.id, socket.id) as bot is not a socket
+
+                    console.log(`[Matchmaking] MATCHED User ${socket.id} <-> Bot ${bot.id}`);
+
+                    socket.emit('matched', {
+                        peerId: bot.id,
+                        peerNickname: bot.userData.nickname,
+                        mode: 'text',
+                        initiator: true
+                    });
+
+                    // Start bot skip timer
+                    bot.startSkipTimer(socket, (botId, userId) => {
+                        const userSocket = io.sockets.sockets.get(userId);
+                        if (userSocket) {
+                            handleCleanup(userId);
+                            userSocket.emit('peer-disconnected');
+                            // Automatically find next for user after bot skips
+                            setTimeout(() => {
+                                if (userSocket.connected) findMatch(userSocket);
+                            }, 1000);
+                        }
+                    });
+
+                } else {
+                    // No peer or bot found, add this user to the queue
+                    targetQueue.push(socket.id);
+                    socket.emit('waiting');
+                    console.log(`[Matchmaking] ${socket.id} is waiting in text. Queue size: ${targetQueue.length}`);
+                }
             }
         };
 
@@ -81,9 +117,13 @@ module.exports = (io) => {
             // Unpair from existing partner if any
             const peerId = activePairs.get(socketId);
             if (peerId) {
-                io.to(peerId).emit('peer-disconnected');
+                if (peerId.startsWith('bot_')) {
+                    releaseBot(peerId);
+                } else {
+                    io.to(peerId).emit('peer-disconnected');
+                    activePairs.delete(peerId);
+                }
                 activePairs.delete(socketId);
-                activePairs.delete(peerId);
                 console.log(`[Cleanup] Unpaired ${socketId} and ${peerId}`);
             }
 
@@ -95,15 +135,22 @@ module.exports = (io) => {
         };
 
         socket.on('send-message', ({ to, message }) => {
-            // Verify pair relationship before relaying
             if (activePairs.get(socket.id) === to) {
-                io.to(to).emit('receive-message', { message });
+                if (to.startsWith('bot_')) {
+                    handleBotMessage(to, socket, message, io);
+                } else {
+                    io.to(to).emit('receive-message', { message });
+                }
             }
         });
 
         socket.on('call-user', ({ to, type }) => {
             if (activePairs.get(socket.id) === to) {
-                io.to(to).emit('call-request', { from: socket.id, type, nickname: socket.userData.nickname });
+                if (to.startsWith('bot_')) {
+                    handleBotCall(to, socket);
+                } else {
+                    io.to(to).emit('call-request', { from: socket.id, type, nickname: socket.userData.nickname });
+                }
             }
         });
 
@@ -138,7 +185,9 @@ module.exports = (io) => {
         });
 
         socket.on('disconnect', (reason) => {
-            console.log(`[Socket] Disconnected: ${socket.id} (${reason})`);
+            onlineCount = Math.max(0, onlineCount - 1);
+            console.log(`[Socket] Disconnected: ${socket.id} (${reason}). Online: ${onlineCount}`);
+            io.emit('online-count', onlineCount);
             handleCleanup(socket.id);
         });
     });
